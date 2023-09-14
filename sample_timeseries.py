@@ -6,14 +6,38 @@ import pickle
 from contextlib import nullcontext
 import torch
 import tiktoken
-from model import GPTConfig, GPT
+from model_timeseries import GPTConfig, GPT
 
 # -----------------------------------------------------------------------------
 init_from = (
     "resume"  # either 'resume' (from an out_dir) or a gpt2 variant (e.g. 'gpt2-xl')
 )
 out_dir = "out"  # ignored if init_from is not 'resume'
-start = "\n"  # or "<|endoftext|>" or etc. Can also specify a file, use as: "FILE:prompt.txt"
+# start = [0.0]
+# start = [
+#     0.0,
+#     0.01745240643728351,
+#     0.03489949670250097,
+#     0.052335956242943835,
+#     0.0697564737441253,
+#     0.08715574274765817,
+#     0.10452846326765347,
+#     0.12186934340514748,
+#     0.13917310096006544,
+# ]
+start = [
+    0.5,
+    0.5087262032186417,
+    0.5174497483512505,
+    0.5261679781214719,
+    0.5348782368720626,
+    0.5435778713738291,
+    0.5522642316338268,
+    0.5609346717025737,
+    0.5695865504800327,
+]
+# or "<|endoftext|>" or etc. Can also specify a file, use as: "FILE:prompt.txt"
+
 num_samples = 10  # number of samples to draw
 max_new_tokens = 500  # number of tokens generated in each sample
 temperature = (
@@ -23,7 +47,7 @@ top_k = (
     200  # retain only the top_k most likely tokens, clamp others to have 0 probability
 )
 seed = 1337
-device = "cuda"  # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1', etc.
+device = "cpu"  # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1', etc.
 dtype = (
     "bfloat16"
     if torch.cuda.is_available() and torch.cuda.is_bf16_supported()
@@ -85,9 +109,9 @@ if load_meta:
     with open(meta_path, "rb") as f:
         meta = pickle.load(f)
     # TODO want to make this more general to arbitrary encoder/decoder schemes
-    stoi, itos = meta["stoi"], meta["itos"]
-    encode = lambda s: [stoi[c] for c in s]
-    decode = lambda l: "".join([itos[i] for i in l])
+    # stoi, itos = meta["stoi"], meta["itos"]
+    # encode = lambda s: [stoi[c] for c in s]
+    # decode = lambda l: "".join([itos[i] for i in l])
 else:
     # ok let's assume gpt-2 encodings by default
     print("No meta.pkl found, assuming GPT-2 encodings...")
@@ -96,10 +120,12 @@ else:
     decode = lambda l: enc.decode(l)
 
 # encode the beginning of the prompt
-if start.startswith("FILE:"):
-    with open(start[5:], "r", encoding="utf-8") as f:
-        start = f.read()
-start_ids = encode(start)
+# if start.startswith("FILE:"):
+#     with open(start[5:], "r", encoding="utf-8") as f:
+#         start = f.read()
+# ! No need to encode
+# start_ids = encode(start)
+start_ids = start
 x = torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...]
 
 # run generation
@@ -107,5 +133,5 @@ with torch.no_grad():
     with ctx:
         for k in range(num_samples):
             y = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
-            print(decode(y[0].tolist()))
+            print(y[0].tolist())
             print("---------------")

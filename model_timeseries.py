@@ -209,9 +209,14 @@ class GPT(nn.Module):
         pos = torch.arange(0, t, dtype=torch.long, device=device)  # shape (t)
 
         # forward the GPT model itself
-        tok_emb = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
+        # ! Comment this out
+        # tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
+        # ! Reshape to cater for transformation
+        idx = torch.reshape(idx, (b, t, self.config.n_embd))
         pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (t, n_embd)
-        x = self.transformer.drop(tok_emb + pos_emb)
+        # ! Slight change here to cater for not using token embeddings, but just idx + pos_emb
+        # x = self.transformer.drop(tok_emb + pos_emb)
+        x = self.transformer.drop(idx + pos_emb)
         for block in self.transformer.h:
             x = block(x)
         x = self.transformer.ln_f(x)
@@ -219,9 +224,13 @@ class GPT(nn.Module):
         if targets is not None:
             # if we are given some desired targets also calculate the loss
             logits = self.lm_head(x)
-            loss = F.cross_entropy(
-                logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1
-            )
+            # ! Since we are using transformers as a regression problem, use mse loss
+            # loss = F.cross_entropy(
+            #     logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1
+            # )
+            # ! Ensure the dimensions are the same
+            logits = logits.squeeze()
+            loss = F.mse_loss(logits.view(-1), targets.view(-1))
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
             logits = self.lm_head(
@@ -379,17 +388,20 @@ class GPT(nn.Module):
             )
             # forward the model to get the logits for the index in the sequence
             logits, _ = self(idx_cond)
-            # pluck the logits at the final step and scale by desired temperature
-            logits = logits[:, -1, :] / temperature
-            # optionally crop the logits to only the top k options
-            if top_k is not None:
-                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-                logits[logits < v[:, [-1]]] = -float("Inf")
-            # apply softmax to convert logits to (normalized) probabilities
-            probs = F.softmax(logits, dim=-1)
-            # sample from the distribution
-            idx_next = torch.multinomial(probs, num_samples=1)
+            # # pluck the logits at the final step and scale by desired temperature
+            # logits = logits[:, -1, :] / temperature
+            # # optionally crop the logits to only the top k options
+            # if top_k is not None:
+            #     v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+            #     logits[logits < v[:, [-1]]] = -float("Inf")
+            # # apply softmax to convert logits to (normalized) probabilities
+            # probs = F.softmax(logits, dim=-1)
+            # # sample from the distribution
+            # idx_next = torch.multinomial(probs, num_samples=1)
             # append sampled index to the running sequence and continue
+            # ! Use logits as next
+            idx_next = logits.squeeze(2)
+            # # append sampled index to the running sequence and continue
             idx = torch.cat((idx, idx_next), dim=1)
 
         return idx
