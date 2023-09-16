@@ -22,10 +22,10 @@ block_size = 10  # context of up to 256 previous characters
 n_layer = 1
 n_head = 1
 n_embd = 1
-dropout = 0.2
+dropout = 0.0
 
-learning_rate = 1e-3  # with baby networks can afford to go a bit higher
-max_iters = 200
+learning_rate = 1e-2  # with baby networks can afford to go a bit higher
+max_iters = 10000
 lr_decay_iters = 5000  # make equal to max_iters usually
 min_lr = 1e-4  # learning_rate / 10 usually
 beta2 = 0.99  # make a bit bigger because number of tokens per iter is small
