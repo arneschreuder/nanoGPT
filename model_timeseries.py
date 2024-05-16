@@ -121,14 +121,18 @@ class MLP(nn.Module):
 class Block(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
+        # self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
         self.attn = CausalSelfAttention(config)
-        self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
+        # self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
 
     def forward(self, x):
-        x = x + self.attn(self.ln_1(x))
-        x = x + self.mlp(self.ln_2(x))
+        # ! Remove layer norm
+        # x = x + self.attn(self.ln_1(x))
+        x = x + self.attn(x)
+        # ! Remove layer norm
+        # x = x + self.mlp(self.ln_2(x))
+        x = x + self.mlp(x)
         return x
 
 
@@ -206,22 +210,40 @@ class GPT(nn.Module):
         assert (
             t <= self.config.block_size
         ), f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
-        pos = torch.arange(0, t, dtype=torch.long, device=device)  # shape (t)
+        pos = torch.arange(0, t, dtype=torch.long, device=device)
+        # ! Need to reshape pos to match the dimensions of idx
+        pos = pos.view(1, t)  # shape (t)
 
         # forward the GPT model itself
-        tok_emb = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
+        # ! Comment this out
+        # tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
+        # ! Reshape to cater for transformation
+        # idx = torch.reshape(idx, (b, t, self.config.n_embd))
+        idx = torch.unsqueeze(idx, -1)
+        # print(idx[0, :])
         pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (t, n_embd)
-        x = self.transformer.drop(tok_emb + pos_emb)
+        # ! Slight change here to cater for not using token embeddings, but just idx + pos_emb
+        # x = self.transformer.drop(tok_emb + pos_emb)
+        # print(idx[0])
+        # print(pos_emb[0])
+        # print((idx + pos_emb)[0])
+        x = self.transformer.drop(idx + pos_emb)
+        # print(x[0])
         for block in self.transformer.h:
             x = block(x)
-        x = self.transformer.ln_f(x)
+        # ! Remove layer norm
+        # x = self.transformer.ln_f(x)
 
         if targets is not None:
             # if we are given some desired targets also calculate the loss
             logits = self.lm_head(x)
-            loss = F.cross_entropy(
-                logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1
-            )
+            # ! Since we are using transformers as a regression problem, use mse loss
+            # loss = F.cross_entropy(
+            #     logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1
+            # )
+            # ! Ensure the dimensions are the same
+            logits = logits.squeeze()
+            loss = F.mse_loss(logits.view(-1), targets.view(-1))
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
             logits = self.lm_head(
@@ -379,17 +401,20 @@ class GPT(nn.Module):
             )
             # forward the model to get the logits for the index in the sequence
             logits, _ = self(idx_cond)
-            # pluck the logits at the final step and scale by desired temperature
-            logits = logits[:, -1, :] / temperature
-            # optionally crop the logits to only the top k options
-            if top_k is not None:
-                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-                logits[logits < v[:, [-1]]] = -float("Inf")
-            # apply softmax to convert logits to (normalized) probabilities
-            probs = F.softmax(logits, dim=-1)
-            # sample from the distribution
-            idx_next = torch.multinomial(probs, num_samples=1)
+            # # pluck the logits at the final step and scale by desired temperature
+            # logits = logits[:, -1, :] / temperature
+            # # optionally crop the logits to only the top k options
+            # if top_k is not None:
+            #     v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+            #     logits[logits < v[:, [-1]]] = -float("Inf")
+            # # apply softmax to convert logits to (normalized) probabilities
+            # probs = F.softmax(logits, dim=-1)
+            # # sample from the distribution
+            # idx_next = torch.multinomial(probs, num_samples=1)
             # append sampled index to the running sequence and continue
+            # ! Use logits as next
+            idx_next = logits.squeeze(2)
+            # # append sampled index to the running sequence and continue
             idx = torch.cat((idx, idx_next), dim=1)
 
         return idx
